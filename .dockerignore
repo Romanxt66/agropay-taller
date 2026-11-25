@@ -1,0 +1,11 @@
+**/node_modules
+artifacts
+cache
+coverage
+web/dist
+.deps
+.states
+.git
+.env
+test
+scripts

@@ -1,0 +1,16 @@
+node_modules/
+artifacts/
+cache/
+coverage/
+coverage.json
+evidencia-taller.md
+.env
+.env.*
+.deps/
+.states/
+web/dist/
+dist/
+*.log
+*.pem
+*.key
+test/mis-pruebas.test.js
