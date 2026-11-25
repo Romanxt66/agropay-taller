@@ -1,0 +1,50 @@
+/* Tokens de BUStra (skill diseno-bustra). Todo color, radio, sombra y espacio sale de aquí. */
+:root {
+  --papel: #f3f0e8;
+  --blanco: #fffdf8;
+  --tinta: #0f0f12;
+  --gris: #55535e;
+  --linea: rgba(15, 15, 18, .12);
+  --naranja: #ff5a1f;
+  --naranja-titulo: #e2470d;
+  --naranja-texto: #c43c0a;
+  --azul: #2340ff;
+  --verde: #0fa968;
+  --amarillo: #ffd23f;
+  --rosa: #ff3d8b;
+  --morado: #7b3ff2;
+  --si: #c9f2dd;
+  --azul-claro: #cdd5ff;
+  --naranja-claro: #ffd6c7;
+  --no: #ffd6c7;
+  --error: #b42318;
+
+  --t-titulo: 'Unbounded Variable', 'Unbounded', system-ui, sans-serif;
+  --t-texto: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
+  --t-codigo: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --f-xs: 12px;
+  --f-s: 14px;
+  --f-m: 16px;
+  --f-l: 19px;
+  --f-xl: 24px;
+
+  --e-1: 8px;
+  --e-2: 16px;
+  --e-3: 28px;
+  --e-4: 56px;
+  --e-5: 112px;
+  --borde-lado: clamp(16px, 4vw, 56px);
+
+  --r-1: 12px;
+  --r-2: 22px;
+  --r-3: 36px;
+  --r-pill: 999px;
+
+  --trazo: 2px solid var(--tinta);
+  --sombra-1: 4px 4px 0 var(--tinta);
+  --sombra-2: 6px 6px 0 var(--tinta);
+  --sombra-3: 10px 10px 0 var(--tinta);
+
+  --curva: cubic-bezier(.65, 0, .35, 1);
+  --suave: cubic-bezier(.2, .8, .2, 1);
+}

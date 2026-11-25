@@ -1,80 +1,58 @@
 import { useState } from 'react'
-import { RotateCcw, DatabaseBackup } from 'lucide-react'
 import { api } from '../api'
 import { corto, eth, TIPOS } from '../format'
+import { Cabecera, Resultado, salidaDeError, type Salida } from '../ui'
 import type { Contexto } from '../App'
 
-export function Registro({ estado, eventos, recargar, avisar }: Contexto) {
-  const [ocupado, setOcupado] = useState<'reconstruir' | 'reiniciar' | null>(null)
-  const [confirmando, setConfirmando] = useState(false)
+export function Registro({ estado, eventos, recargar }: Contexto) {
+  const [ocupado, setOcupado] = useState(false)
+  const [salida, setSalida] = useState<Salida | null>(null)
 
   const reconstruir = async () => {
-    setOcupado('reconstruir')
+    setOcupado(true)
     try {
       const r = await api<{ leidos: number; nuevos: number }>('/reconstruir', {})
-      avisar(`Proyección reconstruida desde la cadena: ${r.leidos} eventos leídos, ${r.nuevos} registrados.`)
+      setSalida({ ok: true, titulo: 'Proyección reconstruida desde la cadena', detalle: `${r.leidos} eventos leídos, ${r.nuevos} registrados.` })
       await recargar()
     } catch (err) {
-      avisar(err instanceof Error ? err.message : 'No pudimos reconstruir la proyección.', 'mal')
+      setSalida(salidaDeError(err, 'Reconstruir la proyección'))
     } finally {
-      setOcupado(null)
+      setOcupado(false)
     }
   }
 
-  const reiniciar = async () => {
-    setOcupado('reiniciar')
-    try {
-      await api('/reiniciar', {})
-      avisar('Contrato nuevo desplegado. La garantía y el registro volvieron a cero.')
-      setConfirmando(false)
-      await recargar()
-    } catch (err) {
-      avisar(err instanceof Error ? err.message : 'No pudimos reiniciar la red.', 'mal')
-    } finally {
-      setOcupado(null)
-    }
+  const nombreDe = (direccion: string) => {
+    const d = direccion.toLowerCase()
+    return (
+      estado.cuentas.find(c => c.direccion.toLowerCase() === d)?.nombre ??
+      estado.practicas.find(p => p.direccion.toLowerCase() === d)?.nombre
+    )
   }
 
   return (
     <>
-      <div className="cabecera">
-        <div>
-          <h1>Registro de eventos</h1>
-          <p>La cadena es la fuente de verdad. Esta tabla es una proyección que se puede borrar y reconstruir leyendo los eventos del contrato.</p>
-        </div>
-        <div className="fila-acciones">
-          <button className="btn" type="button" disabled={ocupado !== null} onClick={() => void reconstruir()}>
-            <DatabaseBackup aria-hidden="true" />
-            {ocupado === 'reconstruir' ? 'Reconstruyendo' : 'Reconstruir proyección'}
+      <Cabecera
+        antetitulo="Indexador"
+        titulo={
+          <>
+            Registro de <em className="destaque">eventos</em>
+          </>
+        }
+        texto="La cadena es la fuente de verdad. Esta tabla es una proyección que se puede borrar y reconstruir leyendo los eventos del contrato."
+        acciones={
+          <button className="btn" type="button" disabled={ocupado} onClick={() => void reconstruir()}>
+            {ocupado ? 'Reconstruyendo' : 'Reconstruir proyección'}
           </button>
-          <button className="btn suave" type="button" disabled={ocupado !== null} onClick={() => setConfirmando(true)}>
-            <RotateCcw aria-hidden="true" />
-            Reiniciar red
-          </button>
-        </div>
-      </div>
+        }
+      />
 
-      {confirmando && (
-        <div className="aviso" role="alertdialog" aria-label="Confirmar reinicio">
-          <span>Se desplegará un contrato nuevo y se perderán la garantía y el registro actuales.</span>
-          <span className="fila-acciones" style={{ marginLeft: 'auto' }}>
-            <button className="btn chico suave" type="button" onClick={() => setConfirmando(false)}>
-              Cancelar
-            </button>
-            <button className="btn chico primario" type="button" disabled={ocupado !== null} onClick={() => void reiniciar()}>
-              Reiniciar
-            </button>
-          </span>
-        </div>
-      )}
-
-      <section className="card">
+      <section className="tarjeta">
         <div className="envoltura">
           {eventos.length === 0 ? (
-            <p className="vacio">Aún no hay eventos. Deposita una garantía en Resumen para registrar el primero.</p>
+            <p className="vacio">Aún no hay eventos. Deposita una garantía para registrar el primero.</p>
           ) : (
             <table className="tabla">
-              <caption className="sr">Eventos del contrato</caption>
+              <caption className="oculto">Eventos del contrato</caption>
               <thead>
                 <tr>
                   <th>Bloque</th>
@@ -87,18 +65,20 @@ export function Registro({ estado, eventos, recargar, avisar }: Contexto) {
               </thead>
               <tbody>
                 {eventos.map(e => {
-                  const productor = estado.productores.find(p => p.direccion.toLowerCase() === e.cuenta.toLowerCase())
+                  const nombre = nombreDe(e.cuenta)
                   return (
                     <tr key={`${e.txHash}:${e.logIndex}`}>
-                      <td className="mono">{e.bloque}</td>
-                      <td>{TIPOS[e.tipo]}</td>
-                      <td className="mono">{e.idLote ?? '—'}</td>
+                      <td className="codigo">{e.bloque}</td>
                       <td>
-                        {productor ? `${productor.nombre} ` : ''}
-                        <span className="mono muted">{corto(e.cuenta)}</span>
+                        <span className={`etiqueta ${e.tipo === 'PagoRetirado' ? 'medio' : e.tipo === 'PagoAutorizado' ? 'si' : ''}`}>{TIPOS[e.tipo]}</span>
+                      </td>
+                      <td className="codigo">{e.idLote ?? '—'}</td>
+                      <td>
+                        {nombre ? `${nombre} ` : ''}
+                        <span className="codigo meta">{corto(e.cuenta)}</span>
                       </td>
                       <td className="num">{eth(e.montoWei)}</td>
-                      <td className="mono muted" title={e.txHash}>
+                      <td className="codigo meta" title={e.txHash}>
                         {corto(e.txHash, 8, 6)}
                       </td>
                     </tr>
@@ -109,6 +89,8 @@ export function Registro({ estado, eventos, recargar, avisar }: Contexto) {
           )}
         </div>
       </section>
+
+      <Resultado salida={salida} />
     </>
   )
 }

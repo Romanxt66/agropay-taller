@@ -59,8 +59,25 @@ function crearApp(servicio, { carpetaWeb, limitePorMinuto = 300, limiteReinicios
   api.post('/lecturas', asincrono(async (req, res) => res.status(201).json(await servicio.enviarLectura(req.body ?? {}))));
   api.post('/retiros', asincrono(async (req, res) => res.status(201).json(await servicio.retirar(req.body ?? {}))));
   api.post('/reconstruir', asincrono(async (_req, res) => res.json(await servicio.reconstruirProyeccion())));
+
+  // Todas las funciones del contrato, llamadas desde la cuenta que se elija
+  api.get('/consulta', asincrono(async (req, res) => {
+    const { saldo, lote } = req.query;
+    if ((saldo !== undefined && typeof saldo !== 'string') || (lote !== undefined && typeof lote !== 'string')) {
+      throw new ErrorServicio(400, 'Consulta no válida.');
+    }
+    res.json(await servicio.consultar({ saldo, lote }));
+  }));
+  api.post('/contrato/deposito', asincrono(async (req, res) => res.status(201).json(await servicio.depositar(req.body ?? {}))));
+  api.post('/contrato/autorizar', asincrono(async (req, res) => res.status(201).json(await servicio.autorizarDirecto(req.body ?? {}))));
+  api.post('/contrato/retiro', asincrono(async (req, res) => res.status(201).json(await servicio.retirar(req.body ?? {}))));
+
+  // Contratos de práctica: destinatario que rechaza y ataque de reentrada
+  api.post('/practica/receptor', asincrono(async (req, res) => res.status(201).json(await servicio.practicaReceptor(req.body ?? {}))));
+  api.post('/practica/atacante', asincrono(async (req, res) => res.status(201).json(await servicio.practicaAtacante(req.body ?? {}))));
+
   // Reiniciar redespliega el contrato: tiene su propio límite, más estricto
-  api.post('/reiniciar', limitador(limiteReinicios), asincrono(async (_req, res) => res.status(201).json(await servicio.reiniciar())));
+  api.post('/reiniciar', limitador(limiteReinicios), asincrono(async (req, res) => res.status(201).json(await servicio.reiniciar(req.body ?? {}))));
   api.use((_req, _res, next) => next(new ErrorServicio(404, 'No encontrado.')));
   app.use('/api', api);
 
@@ -71,7 +88,7 @@ function crearApp(servicio, { carpetaWeb, limitePorMinuto = 300, limiteReinicios
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {
-    if (err instanceof ErrorServicio) return res.status(err.estado).json({ error: err.message, codigo: err.codigo });
+    if (err instanceof ErrorServicio) return res.status(err.estado).json({ error: err.message, codigo: err.codigo, revert: err.revert });
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON no válido.' });
     if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'La petición es demasiado grande.' });
     console.error('Error interno:', err);

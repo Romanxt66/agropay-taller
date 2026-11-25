@@ -32,7 +32,7 @@ function Banda({ etiqueta, unidad, valor, minimo, maximo, desde, hasta, texto }:
         <div className="zona" style={{ left: `${zonaDesde}%`, width: `${zonaHasta - zonaDesde}%` }} />
         <div className={`marca ${ok ? 'ok' : 'fuera'}`} style={{ left: `${pct(valor, minimo, maximo)}%` }} />
       </div>
-      <div className="escala mono">
+      <div className="escala">
         <span>
           {minimo}
           {unidad}

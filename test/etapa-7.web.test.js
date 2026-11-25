@@ -84,7 +84,6 @@ describe('Etapa 7 · Servicio y API de la web', () => {
   });
 
   it('valida las entradas', async () => {
-    expect((await post('/api/garantia', { eth: '0' })).status).to.equal(400);
     expect((await post('/api/garantia', { eth: '999' })).status).to.equal(400);
     expect((await post('/api/garantia', { eth: 'abc' })).status).to.equal(400);
     expect((await post('/api/lecturas', lectura({ idLote: 1.5 }))).status).to.equal(400);
@@ -122,6 +121,91 @@ describe('Etapa 7 · Servicio y API de la web', () => {
     expect(respuestas.map(r => r.status)).to.deep.equal(Array(8).fill(201));
     const estado = await (await fetch(base + '/api/estado')).json();
     expect(estado.garantiaWei).to.equal(ethers.parseEther('2').toString());
+  });
+
+  describe('todas las funciones del contrato', () => {
+    const cero = '0x0000000000000000000000000000000000000000';
+    const json2 = async r => ({ estado: r.status, ...(await r.json()) });
+
+    it('depositar desde cualquier cuenta y con monto cero muestra MontoInvalido', async () => {
+      expect((await post('/api/contrato/deposito', { eth: '1', cuenta: 5 })).status).to.equal(201);
+      const cuerpo = await json2(await post('/api/contrato/deposito', { eth: '0', cuenta: 0 }));
+      expect(cuerpo).to.include({ estado: 409, codigo: 'MONTO_INVALIDO', revert: 'MontoInvalido' });
+      const eventos = await (await fetch(base + '/api/eventos')).json();
+      expect(eventos).to.have.length(1);
+    });
+
+    it('autorizarPago directo: solo el oráculo, y valida dirección, monto, lote y fondos', async () => {
+      await post('/api/contrato/deposito', { eth: '2', cuenta: 0 });
+      const intento = (extra = {}) =>
+        post('/api/contrato/autorizar', { cuenta: 1, idLote: 5, destino: { cuenta: 2 }, montoEth: '1', ...extra }).then(json2);
+      expect(await intento({ cuenta: 3 })).to.include({ estado: 409, codigo: 'SOLO_ORACULO' });
+      expect(await intento({ destino: { direccion: cero } })).to.include({ codigo: 'DIRECCION_INVALIDA' });
+      expect(await intento({ montoEth: '0' })).to.include({ codigo: 'MONTO_INVALIDO' });
+      expect(await intento({ montoEth: '9' })).to.include({ codigo: 'FONDOS_INSUFICIENTES' });
+      expect((await intento()).estado).to.equal(201);
+      expect(await intento()).to.include({ codigo: 'LOTE_REPETIDO' });
+      expect((await post('/api/contrato/autorizar', { cuenta: 1, idLote: 6, destino: { direccion: 'hola' }, montoEth: '1' })).status).to.equal(400);
+    });
+
+    it('retirar desde cualquier cuenta y consultar las cuatro vistas', async () => {
+      await post('/api/contrato/deposito', { eth: '2', cuenta: 0 });
+      await post('/api/contrato/autorizar', { cuenta: 1, idLote: 8, destino: { cuenta: 7 }, montoEth: '1' });
+      const estado = await (await fetch(base + '/api/estado')).json();
+      const cuenta7 = estado.cuentas[7];
+      const consulta = await (await fetch(`${base}/api/consulta?saldo=${cuenta7.direccion}&lote=8`)).json();
+      expect(consulta.oraculo).to.equal(estado.oraculo);
+      expect(consulta.garantiaWei).to.equal(ethers.parseEther('1').toString());
+      expect(consulta.saldoDe.pendienteWei).to.equal(ethers.parseEther('1').toString());
+      expect(consulta.lote.autorizado).to.equal(true);
+      expect((await (await fetch(`${base}/api/consulta?lote=9`)).json()).lote.autorizado).to.equal(false);
+      expect((await fetch(`${base}/api/consulta?saldo=xyz`)).status).to.equal(400);
+
+      expect((await post('/api/contrato/retiro', { cuenta: 7 })).status).to.equal(201);
+      expect((await json2(await post('/api/contrato/retiro', { cuenta: 7 })))).to.include({ codigo: 'SIN_SALDO' });
+      expect((await post('/api/contrato/retiro', { cuenta: 99 })).status).to.equal(400);
+    });
+
+    it('el receptor que rechaza provoca FalloTransferencia y conserva el saldo', async () => {
+      await post('/api/contrato/deposito', { eth: '2', cuenta: 0 });
+      const r = await (await post('/api/practica/receptor', { montoEth: '1' })).json();
+      expect(r.intento).to.include({ exito: false, codigo: 'FALLO_TRANSFERENCIA' });
+      expect(r.pendienteWei).to.equal(ethers.parseEther('1').toString());
+      const estado = await (await fetch(base + '/api/estado')).json();
+      expect(estado.practicas).to.have.length(1);
+      expect(estado.practicas[0].pendienteWei).to.equal(ethers.parseEther('1').toString());
+    });
+
+    it('el atacante de reentrada cobra una sola vez', async () => {
+      await post('/api/contrato/deposito', { eth: '3', cuenta: 0 });
+      const r = await (await post('/api/practica/atacante', { montoEth: '1' })).json();
+      expect(r).to.include({ intentosReentrada: 1, reentradaExitosa: false, pendienteWei: '0' });
+      expect(r.recibidoWei).to.equal(ethers.parseEther('1').toString());
+    });
+
+    it('limita los contratos de práctica y los borra al reiniciar', async () => {
+      await post('/api/contrato/deposito', { eth: '10', cuenta: 0 });
+      for (let i = 0; i < 5; i += 1) expect((await post('/api/practica/atacante', { montoEth: '1' })).status).to.equal(201);
+      expect((await post('/api/practica/atacante', { montoEth: '1' })).status).to.equal(409);
+      await post('/api/reiniciar', {});
+      expect((await (await fetch(base + '/api/estado')).json()).practicas).to.have.length(0);
+    });
+
+    it('reiniciar con otra cuenta como oráculo y con la dirección cero', async () => {
+      expect((await post('/api/reiniciar', { oraculo: 5 })).status).to.equal(201);
+      let estado = await (await fetch(base + '/api/estado')).json();
+      expect(estado.oraculoIndice).to.equal(5);
+      expect(estado.cuentas[5].nombre).to.equal('Oráculo');
+      await post('/api/garantia', { eth: '2' });
+      const lecturaOk = await (await post('/api/lecturas', lectura())).json();
+      expect(lecturaOk.resultado.aprobada).to.equal(true);
+
+      const antes = estado.contrato;
+      expect(await json2(await post('/api/reiniciar', { oraculo: 'cero' }))).to.include({ estado: 409, codigo: 'DIRECCION_INVALIDA' });
+      estado = await (await fetch(base + '/api/estado')).json();
+      expect(estado.contrato).to.equal(antes);
+      expect((await post('/api/reiniciar', { oraculo: 3 })).status).to.equal(400);
+    });
   });
 
   it('los errores internos no filtran detalles', async () => {

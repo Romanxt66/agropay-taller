@@ -1,16 +1,16 @@
-import { useMemo, useState, type FormEvent } from 'react'
-import { Check, X } from 'lucide-react'
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { api, type Prueba, type RespuestaLectura } from '../api'
 import { BandaLectura } from '../Banda'
-import { corto, eth, grados, numero } from '../format'
+import { corto, grados, numero } from '../format'
+import { Cabecera, Resultado, salidaDeError, type Salida } from '../ui'
 import type { Contexto } from '../App'
 
-type Estado = 'hecho' | 'fallo' | 'omitido'
+type Paso = 'hecho' | 'fallo' | 'omitido'
 
-function Paso({ estado, titulo, children }: { estado: Estado; titulo: string; children?: React.ReactNode }) {
+function PasoLinea({ n, estado, titulo, children }: { n: number; estado: Paso; titulo: string; children?: ReactNode }) {
   return (
-    <li className={`paso ${estado}`}>
-      <span className="nodo" aria-hidden="true" />
+    <li className={estado}>
+      <b aria-hidden="true">{estado === 'hecho' ? '✓' : estado === 'fallo' ? '!' : n}</b>
       <div>
         <div className="titulo">{titulo}</div>
         {children}
@@ -21,20 +21,19 @@ function Paso({ estado, titulo, children }: { estado: Estado; titulo: string; ch
 
 function Recorrido({ r }: { r: RespuestaLectura }) {
   const { paquete, resultado, rechazo } = r
-  const verificacion: Estado = rechazo ? 'fallo' : 'hecho'
-  const reglas: Estado = rechazo ? 'omitido' : resultado && !resultado.aprobada ? 'fallo' : 'hecho'
-  const pago: Estado = resultado?.txHash ? 'hecho' : 'omitido'
+  const reglas: Paso = rechazo ? 'omitido' : resultado && !resultado.aprobada ? 'fallo' : 'hecho'
+  const pago: Paso = resultado?.txHash ? 'hecho' : 'omitido'
   return (
-    <ol className="pasos">
-      <Paso estado="hecho" titulo="Lectura firmada por el oráculo">
-        <span className="sello mono" title={paquete.firma}>
+    <ol className="pasos-num">
+      <PasoLinea n={1} estado="hecho" titulo="Lectura firmada por el oráculo">
+        <span className="etiqueta codigo" title={paquete.firma}>
           Firma {corto(paquete.firma, 8, 6)}
         </span>
-      </Paso>
-      <Paso estado={verificacion} titulo={rechazo ? 'Firma o nonce rechazados' : 'Firma y nonce verificados'}>
-        {rechazo && <p className="sec">{rechazo.mensaje}</p>}
-      </Paso>
-      <Paso estado={reglas} titulo={rechazo ? 'Reglas sin evaluar' : resultado?.aprobada ? 'Lectura dentro de las reglas' : 'Lectura fuera de las reglas'}>
+      </PasoLinea>
+      <PasoLinea n={2} estado={rechazo ? 'fallo' : 'hecho'} titulo={rechazo ? 'Firma o nonce rechazados' : 'Firma y nonce verificados'}>
+        {rechazo && <p className="meta">{rechazo.mensaje}</p>}
+      </PasoLinea>
+      <PasoLinea n={3} estado={reglas} titulo={rechazo ? 'Reglas sin evaluar' : resultado?.aprobada ? 'Lectura dentro de las reglas' : 'Lectura fuera de las reglas'}>
         {resultado && !resultado.aprobada && (
           <ul className="motivos">
             {resultado.motivos.map(m => (
@@ -42,21 +41,21 @@ function Recorrido({ r }: { r: RespuestaLectura }) {
             ))}
           </ul>
         )}
-      </Paso>
-      <Paso estado={pago} titulo={pago === 'hecho' ? 'Pago autorizado en la cadena' : 'Sin transacción, no se autoriza pago'}>
+      </PasoLinea>
+      <PasoLinea n={4} estado={pago} titulo={pago === 'hecho' ? 'Pago autorizado en la cadena' : 'Sin transacción, no se autoriza pago'}>
         {resultado?.txHash && (
-          <span className="sello mono" title={resultado.txHash}>
+          <span className="etiqueta si codigo" title={resultado.txHash}>
             Tx {corto(resultado.txHash, 8, 6)}
           </span>
         )}
-      </Paso>
+      </PasoLinea>
     </ol>
   )
 }
 
-export function Lectura({ estado, eventos, recargar, avisar, ultima, guardarUltima }: Contexto) {
+export function Lectura({ estado, eventos, recargar, ultima, guardarUltima }: Contexto) {
   const siguienteLote = useMemo(
-    () => Math.max(0, ...eventos.filter(e => e.idLote).map(e => Number(e.idLote))) + 1,
+    () => Math.max(0, ...eventos.filter(e => e.idLote && Number(e.idLote) < 3_000_000_000).map(e => Number(e.idLote))) + 1,
     [eventos],
   )
   const [idLote, setIdLote] = useState<number | null>(null)
@@ -65,6 +64,7 @@ export function Lectura({ estado, eventos, recargar, avisar, ultima, guardarUlti
   const [temperatura, setTemperatura] = useState(3.5)
   const [acidez, setAcidez] = useState(16)
   const [enviando, setEnviando] = useState<Prueba | null>(null)
+  const [salida, setSalida] = useState<Salida | null>(null)
 
   const { limites } = estado
   const cumple = temperatura <= limites.temperaturaMaxima && acidez >= limites.acidezMinima && acidez <= limites.acidezMaxima
@@ -73,94 +73,56 @@ export function Lectura({ estado, eventos, recargar, avisar, ultima, guardarUlti
   const enviar = async (prueba: Prueba, e?: FormEvent) => {
     e?.preventDefault()
     setEnviando(prueba)
+    setSalida(null)
     try {
       const r = await api<RespuestaLectura>('/lecturas', { idLote: lote, temperatura, acidez, productor, montoEth, prueba })
       guardarUltima(r)
       setIdLote(null)
       await recargar()
     } catch (err) {
-      avisar(err instanceof Error ? err.message : 'No pudimos enviar la lectura.', 'mal')
+      setSalida(salidaDeError(err, 'Lectura de lote'))
     } finally {
       setEnviando(null)
     }
   }
 
+  const oraculo = estado.cuentas.find(c => c.esOraculo)
+
   return (
     <>
-      <div className="cabecera">
-        <div>
-          <h1>Lectura de lote</h1>
-          <p>El oráculo firma la lectura, el servicio verifica la firma y evalúa las reglas. Solo una lectura conforme autoriza el pago.</p>
-        </div>
-      </div>
+      <Cabecera
+        antetitulo="Oráculo"
+        titulo={
+          <>
+            Lectura de <em className="destaque">lote</em>
+          </>
+        }
+        texto={`La cuenta ${oraculo ? oraculo.nombre : 'del oráculo'} firma la lectura, el servicio verifica la firma y evalúa las reglas. Solo una lectura conforme autoriza el pago.`}
+      />
 
-      <div className="dos-col">
-        <form className="card" onSubmit={e => void enviar('normal', e)}>
+      <div className="rejilla-dos-uno">
+        <form className="tarjeta" onSubmit={e => void enviar('normal', e)}>
           <h2>Medición</h2>
-          <div className="banda-wrap">
-            <BandaLectura temperatura={temperatura} acidez={acidez} limites={limites} />
-          </div>
+          <BandaLectura temperatura={temperatura} acidez={acidez} limites={limites} />
 
-          <div className="rejilla" style={{ marginTop: 24 }}>
+          <div className="dos">
             <div className="campo">
               <label htmlFor="temperatura">Temperatura (°C)</label>
-              <input
-                id="temperatura"
-                className="entrada"
-                type="number"
-                step="0.1"
-                min={-50}
-                max={100}
-                value={temperatura}
-                onChange={e => setTemperatura(Number(e.target.value))}
-              />
-              <input
-                type="range"
-                aria-label="Ajustar temperatura"
-                min={-2}
-                max={10}
-                step={0.1}
-                value={Math.min(10, Math.max(-2, temperatura))}
-                onChange={e => setTemperatura(Number(e.target.value))}
-              />
+              <input id="temperatura" type="number" step="0.1" min={-50} max={100} value={temperatura} onChange={e => setTemperatura(Number(e.target.value))} />
+              <input type="range" aria-label="Ajustar temperatura" min={-2} max={10} step={0.1} value={Math.min(10, Math.max(-2, temperatura))} onChange={e => setTemperatura(Number(e.target.value))} />
             </div>
             <div className="campo">
               <label htmlFor="acidez">Acidez</label>
-              <input
-                id="acidez"
-                className="entrada"
-                type="number"
-                step="0.1"
-                min={0}
-                max={100}
-                value={acidez}
-                onChange={e => setAcidez(Number(e.target.value))}
-              />
-              <input
-                type="range"
-                aria-label="Ajustar acidez"
-                min={10}
-                max={22}
-                step={0.1}
-                value={Math.min(22, Math.max(10, acidez))}
-                onChange={e => setAcidez(Number(e.target.value))}
-              />
+              <input id="acidez" type="number" step="0.1" min={0} max={100} value={acidez} onChange={e => setAcidez(Number(e.target.value))} />
+              <input type="range" aria-label="Ajustar acidez" min={10} max={22} step={0.1} value={Math.min(22, Math.max(10, acidez))} onChange={e => setAcidez(Number(e.target.value))} />
             </div>
             <div className="campo">
               <label htmlFor="lote">Número de lote</label>
-              <input
-                id="lote"
-                className="entrada"
-                type="number"
-                min={1}
-                step={1}
-                value={lote}
-                onChange={e => setIdLote(Number(e.target.value))}
-              />
+              <input id="lote" type="number" min={1} step={1} value={lote} onChange={e => setIdLote(Number(e.target.value))} />
             </div>
             <div className="campo">
               <label htmlFor="productor">Productor</label>
-              <select id="productor" className="entrada" value={productor} onChange={e => setProductor(Number(e.target.value))}>
+              <select id="productor" value={productor} onChange={e => setProductor(Number(e.target.value))}>
                 {estado.productores.map(p => (
                   <option key={p.indice} value={p.indice}>
                     {p.nombre} · {corto(p.direccion)}
@@ -170,30 +132,30 @@ export function Lectura({ estado, eventos, recargar, avisar, ultima, guardarUlti
             </div>
             <div className="campo">
               <label htmlFor="monto-pago">Pago si el lote es conforme (ETH)</label>
-              <input id="monto-pago" className="entrada" inputMode="decimal" value={montoEth} onChange={e => setMontoEth(e.target.value)} />
+              <input id="monto-pago" inputMode="decimal" value={montoEth} onChange={e => setMontoEth(e.target.value)} />
             </div>
             <div className="campo">
-              <span className="sec">Vista previa de las reglas</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, color: cumple ? 'var(--pos)' : 'var(--neg)' }}>
-                {cumple ? <Check size={16} strokeWidth={1.5} aria-hidden="true" /> : <X size={16} strokeWidth={1.5} aria-hidden="true" />}
+              <span className="rotulo">Vista previa de las reglas</span>
+              <span className={`etiqueta ${cumple ? 'si' : 'no'}`} style={{ alignSelf: 'start', marginTop: 8 }}>
                 {cumple ? 'Cumple las reglas' : 'No cumple las reglas'}
               </span>
+              <span className="ayuda">Temperatura {grados(temperatura)} · acidez {numero(acidez)}</span>
             </div>
           </div>
 
-          <div className="fila-acciones" style={{ marginTop: 24 }}>
-            <button className="btn primario" type="submit" disabled={enviando !== null}>
+          <div className="fila">
+            <button className="btn btn-lleno" type="submit" disabled={enviando !== null}>
               {enviando === 'normal' ? 'Firmando y enviando' : 'Firmar y enviar lectura'}
             </button>
           </div>
         </form>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <section className="card" aria-live="polite">
+        <div className="pila-v">
+          <section className="tarjeta" aria-live="polite">
             <h2>Recorrido de la última lectura</h2>
             {ultima ? (
               <>
-                <p className="mono muted" style={{ marginBottom: 16 }}>
+                <p className="codigo meta">
                   Lote {ultima.paquete.lectura.idLote} · {grados(ultima.paquete.lectura.temperatura)} · acidez {numero(ultima.paquete.lectura.acidez)}
                 </p>
                 <Recorrido r={ultima} />
@@ -203,25 +165,22 @@ export function Lectura({ estado, eventos, recargar, avisar, ultima, guardarUlti
             )}
           </section>
 
-          <section className="card">
+          <section className="tarjeta">
             <h2>Pruebas de seguridad</h2>
-            <p className="sec" style={{ marginBottom: 16 }}>
-              Usan los valores del formulario. Ninguna debería autorizar un pago.
-            </p>
-            <div className="fila-acciones">
-              <button className="btn" type="button" disabled={enviando !== null || !ultima} onClick={() => void enviar('repetida')}>
+            <p className="intro">Usan los valores del formulario. Ninguna debería autorizar un pago.</p>
+            <div className="fila">
+              <button className="btn btn-chico" type="button" disabled={enviando !== null || !ultima} onClick={() => void enviar('repetida')}>
                 Repetir la última lectura
               </button>
-              <button className="btn" type="button" disabled={enviando !== null} onClick={() => void enviar('alterada')}>
+              <button className="btn btn-chico" type="button" disabled={enviando !== null} onClick={() => void enviar('alterada')}>
                 Alterar un dato tras firmar
               </button>
             </div>
-            <p className="mono muted" style={{ marginTop: 16 }}>
-              Garantía disponible {eth(estado.garantiaWei)}
-            </p>
           </section>
         </div>
       </div>
+
+      <Resultado salida={salida} />
     </>
   )
 }
