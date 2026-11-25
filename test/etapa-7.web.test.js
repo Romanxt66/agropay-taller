@@ -10,7 +10,7 @@ describe('Etapa 7 · Servicio y API de la web', () => {
   const json = { 'Content-Type': 'application/json' };
   const post = (ruta, cuerpo, cabeceras = json) =>
     fetch(base + ruta, { method: 'POST', headers: cabeceras, body: JSON.stringify(cuerpo) });
-  const lectura = (extra = {}) => ({ idLote: 1, temperatura: 3, acidez: 16, productor: 0, montoEth: '1', ...extra });
+  const lectura = (extra = {}) => ({ idLote: 1, temperatura: 3, acidez: 16, productor: 2, montoEth: '1', ...extra });
 
   beforeEach(async () => {
     const servicio = await crearServicio({ ethers });
@@ -39,7 +39,7 @@ describe('Etapa 7 · Servicio y API de la web', () => {
     expect(estado.garantiaWei).to.equal(ethers.parseEther('1').toString());
     expect(estado.productores[0].pendienteWei).to.equal(ethers.parseEther('1').toString());
 
-    expect((await post('/api/retiros', { productor: 0 })).status).to.equal(201);
+    expect((await post('/api/retiros', { productor: 2 })).status).to.equal(201);
     estado = await (await fetch(base + '/api/estado')).json();
     expect(estado.productores[0].pendienteWei).to.equal('0');
 
@@ -78,7 +78,7 @@ describe('Etapa 7 · Servicio y API de la web', () => {
     expect(sinFondos.status).to.equal(409);
     expect((await sinFondos.json()).codigo).to.equal('FONDOS_INSUFICIENTES');
 
-    const sinSaldo = await post('/api/retiros', { productor: 1 });
+    const sinSaldo = await post('/api/retiros', { productor: 3 });
     expect(sinSaldo.status).to.equal(409);
     expect((await sinSaldo.json()).codigo).to.equal('SIN_SALDO');
   });
@@ -88,9 +88,9 @@ describe('Etapa 7 · Servicio y API de la web', () => {
     expect((await post('/api/garantia', { eth: 'abc' })).status).to.equal(400);
     expect((await post('/api/lecturas', lectura({ idLote: 1.5 }))).status).to.equal(400);
     expect((await post('/api/lecturas', lectura({ temperatura: '3' }))).status).to.equal(400);
-    expect((await post('/api/lecturas', lectura({ productor: 9 }))).status).to.equal(400);
+    expect((await post('/api/lecturas', lectura({ productor: 99 }))).status).to.equal(400);
     expect((await post('/api/lecturas', lectura({ prueba: 'x' }))).status).to.equal(400);
-    expect((await post('/api/retiros', { productor: 9 })).status).to.equal(400);
+    expect((await post('/api/retiros', { productor: 99 })).status).to.equal(400);
   });
 
   it('exige JSON y rechaza peticiones de otros sitios', async () => {
@@ -116,11 +116,48 @@ describe('Etapa 7 · Servicio y API de la web', () => {
   it('operaciones simultáneas no se pisan', async () => {
     await post('/api/garantia', { eth: '10' });
     const respuestas = await Promise.all(
-      Array.from({ length: 8 }, (_, i) => post('/api/lecturas', lectura({ idLote: 100 + i, productor: i % 3 }))),
+      Array.from({ length: 8 }, (_, i) => post('/api/lecturas', lectura({ idLote: 100 + i, productor: 2 + (i % 3) }))),
     );
     expect(respuestas.map(r => r.status)).to.deep.equal(Array(8).fill(201));
     const estado = await (await fetch(base + '/api/estado')).json();
     expect(estado.garantiaWei).to.equal(ethers.parseEther('2').toString());
+  });
+
+  describe('selección de cuenta (el índice que informa /api/estado es el que se envía)', () => {
+    it('una lectura paga a la cuenta elegida, para cada productor de la lista', async () => {
+      await post('/api/garantia', { eth: '10' });
+      const { productores } = await (await fetch(base + '/api/estado')).json();
+      for (const [i, p] of productores.entries()) {
+        const r = await post('/api/lecturas', lectura({ idLote: 20 + i, productor: p.indice, montoEth: String(i + 1) }));
+        expect(r.status, `lectura para ${p.nombre}`).to.equal(201);
+      }
+      const estado = await (await fetch(base + '/api/estado')).json();
+      expect(estado.productores.map(p => p.pendienteWei)).to.deep.equal(
+        [1, 2, 3].map(n => ethers.parseEther(String(n)).toString()),
+      );
+      // Ninguna otra cuenta recibió nada
+      const otras = estado.cuentas.filter(c => ![2, 3, 4].includes(c.indice));
+      expect(otras.every(c => c.pendienteWei === '0')).to.equal(true);
+    });
+
+    it('el retiro usa la misma numeración, por /retiros y por /contrato/retiro', async () => {
+      await post('/api/garantia', { eth: '10' });
+      await post('/api/lecturas', lectura({ idLote: 1, productor: 3 }));
+      await post('/api/lecturas', lectura({ idLote: 2, productor: 4 }));
+      expect((await post('/api/retiros', { productor: 3 })).status).to.equal(201);
+      expect((await post('/api/contrato/retiro', { cuenta: 4 })).status).to.equal(201);
+      const estado = await (await fetch(base + '/api/estado')).json();
+      expect(estado.cuentas.slice(2, 5).map(c => c.pendienteWei)).to.deep.equal(['0', '0', '0']);
+    });
+
+    it('una lectura puede pagar a cualquiera de las 10 cuentas y rechaza las que no existen', async () => {
+      await post('/api/garantia', { eth: '5' });
+      expect((await post('/api/lecturas', lectura({ idLote: 7, productor: 8 }))).status).to.equal(201);
+      const estado = await (await fetch(base + '/api/estado')).json();
+      expect(estado.cuentas[8].pendienteWei).to.equal(ethers.parseEther('1').toString());
+      expect((await post('/api/lecturas', lectura({ idLote: 8, productor: 10 }))).status).to.equal(400);
+      expect((await post('/api/lecturas', lectura({ idLote: 8, productor: -1 }))).status).to.equal(400);
+    });
   });
 
   describe('todas las funciones del contrato', () => {
@@ -206,6 +243,31 @@ describe('Etapa 7 · Servicio y API de la web', () => {
       expect(estado.contrato).to.equal(antes);
       expect((await post('/api/reiniciar', { oraculo: 3 })).status).to.equal(400);
     });
+  });
+
+  it('reiniciar las cuentas devuelve a las 10 su saldo inicial y deja un contrato nuevo', async () => {
+    await post('/api/garantia', { eth: '10' });
+    await post('/api/lecturas', lectura({ productor: 3 }));
+    await post('/api/contrato/retiro', { cuenta: 3 });
+    await post('/api/practica/atacante', { montoEth: '1' });
+    const antes = await (await fetch(base + '/api/estado')).json();
+    expect(antes.cuentas.some(c => c.balanceWei !== ethers.parseEther('10000').toString())).to.equal(true);
+
+    expect((await post('/api/reiniciar-cuentas', {})).status).to.equal(201);
+    const despues = await (await fetch(base + '/api/estado')).json();
+    expect(despues.contrato).to.not.equal(antes.contrato);
+    expect(despues.garantiaWei).to.equal('0');
+    expect(despues.oraculoIndice).to.equal(1);
+    expect(despues.practicas).to.have.length(0);
+    expect(despues.cuentas).to.have.length(10);
+    for (const c of despues.cuentas) {
+      expect(c.balanceWei, `saldo de ${c.nombre}`).to.equal(ethers.parseEther('10000').toString());
+      expect(c.pendienteWei).to.equal('0');
+    }
+    expect(await (await fetch(base + '/api/eventos')).json()).to.deep.equal([]);
+    // Todo sigue funcionando después del reinicio
+    expect((await post('/api/garantia', { eth: '1' })).status).to.equal(201);
+    expect((await post('/api/lecturas', lectura({ idLote: 1 }))).status).to.equal(201);
   });
 
   it('los errores internos no filtran detalles', async () => {

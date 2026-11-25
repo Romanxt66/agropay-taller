@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import { corto, eth } from '../format'
-import { Cabecera, Dialogo, Resultado, salidaDeError, type Salida } from '../ui'
+import { Cabecera, Dialogo, ReiniciarCuentas, Resultado, salidaDeError, type Salida } from '../ui'
 import type { Contexto } from '../App'
 
 interface RespReceptor {
@@ -143,6 +143,21 @@ export function Laboratorio({ estado, recargar }: Contexto) {
             <button className="btn btn-peligro" type="button" disabled={ocupado !== null} onClick={() => setConfirmando(true)}>
               Desplegar contrato nuevo
             </button>
+          </div>
+          <div className="separado">
+            <p className="meta" style={{ marginBottom: 8 }}>
+              Para empezar de cero también con los saldos: las 10 cuentas vuelven a 10.000 ETH y el oráculo a la Cuenta 2.
+            </p>
+            <ReiniciarCuentas
+              deshabilitado={ocupado !== null}
+              onSalida={s => {
+                setSalida(s)
+                setReceptor(null)
+                setAtacante(null)
+                setEleccion('1')
+              }}
+              alTerminar={recargar}
+            />
           </div>
         </section>
 

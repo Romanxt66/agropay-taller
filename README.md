@@ -5,7 +5,7 @@ una proyección en tres capas. Esta versión añade una **web** para recorrer el
 
 ## La web
 
-- **Resumen:** garantía disponible, saldos pendientes de los productores, depósito de garantía y retiros.
+- **Resumen:** garantía disponible, saldos pendientes, depósito de garantía y retiros, y un botón para reiniciar todas las cuentas (las 10 vuelven a 10.000 ETH y se despliega un contrato nuevo).
 - **Lectura de lote:** el oráculo firma una lectura de temperatura y acidez, el servicio verifica firma y
   nonce, evalúa las reglas y, solo si cumple, autoriza el pago en el contrato. Incluye dos pruebas de
   seguridad: repetir una lectura y alterar un dato después de firmar.

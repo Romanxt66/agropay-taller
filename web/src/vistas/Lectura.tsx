@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { api, type Prueba, type RespuestaLectura } from '../api'
 import { BandaLectura } from '../Banda'
 import { corto, grados, numero } from '../format'
-import { Cabecera, Resultado, salidaDeError, type Salida } from '../ui'
+import { Cabecera, Resultado, SelectorCuenta, salidaDeError, type Salida } from '../ui'
 import type { Contexto } from '../App'
 
 type Paso = 'hecho' | 'fallo' | 'omitido'
@@ -59,7 +59,7 @@ export function Lectura({ estado, eventos, recargar, ultima, guardarUltima }: Co
     [eventos],
   )
   const [idLote, setIdLote] = useState<number | null>(null)
-  const [productor, setProductor] = useState(0)
+  const [productor, setProductor] = useState(2)
   const [montoEth, setMontoEth] = useState('1')
   const [temperatura, setTemperatura] = useState(3.5)
   const [acidez, setAcidez] = useState(16)
@@ -120,16 +120,7 @@ export function Lectura({ estado, eventos, recargar, ultima, guardarUltima }: Co
               <label htmlFor="lote">Número de lote</label>
               <input id="lote" type="number" min={1} step={1} value={lote} onChange={e => setIdLote(Number(e.target.value))} />
             </div>
-            <div className="campo">
-              <label htmlFor="productor">Productor</label>
-              <select id="productor" value={productor} onChange={e => setProductor(Number(e.target.value))}>
-                {estado.productores.map(p => (
-                  <option key={p.indice} value={p.indice}>
-                    {p.nombre} · {corto(p.direccion)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <SelectorCuenta id="productor" etiqueta="Cuenta que recibe el pago" cuentas={estado.cuentas} valor={productor} onCambio={setProductor} />
             <div className="campo">
               <label htmlFor="monto-pago">Pago si el lote es conforme (ETH)</label>
               <input id="monto-pago" inputMode="decimal" value={montoEth} onChange={e => setMontoEth(e.target.value)} />

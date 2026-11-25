@@ -78,6 +78,7 @@ function crearApp(servicio, { carpetaWeb, limitePorMinuto = 300, limiteReinicios
 
   // Reiniciar redespliega el contrato: tiene su propio límite, más estricto
   api.post('/reiniciar', limitador(limiteReinicios), asincrono(async (req, res) => res.status(201).json(await servicio.reiniciar(req.body ?? {}))));
+  api.post('/reiniciar-cuentas', limitador(limiteReinicios), asincrono(async (_req, res) => res.status(201).json(await servicio.reiniciarCuentas())));
   api.use((_req, _res, next) => next(new ErrorServicio(404, 'No encontrado.')));
   app.use('/api', api);
 

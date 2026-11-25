@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import { corto, eth } from '../format'
-import { Cabecera, Resultado, salidaDeError, type Salida } from '../ui'
+import { Cabecera, ReiniciarCuentas, Resultado, salidaDeError, type Salida } from '../ui'
 import type { Contexto } from '../App'
 
 export function Resumen({ estado, eventos, recargar }: Contexto) {
@@ -39,7 +39,8 @@ export function Resumen({ estado, eventos, recargar }: Contexto) {
     }
   }
 
-  const conSaldo = estado.cuentas.filter(c => c.indice >= 2 && c.indice <= 4)
+  // Los tres productores y cualquier otra cuenta que tenga saldo pendiente
+  const conSaldo = estado.cuentas.filter(c => (c.indice >= 2 && c.indice <= 4) || c.pendienteWei !== '0')
 
   return (
     <>
@@ -51,6 +52,7 @@ export function Resumen({ estado, eventos, recargar }: Contexto) {
           </>
         }
         texto="Fondos en custodia del contrato y saldos que los productores pueden retirar."
+        acciones={<ReiniciarCuentas onSalida={setSalida} alTerminar={recargar} />}
       />
 
       <div className="rejilla-3">
@@ -108,7 +110,7 @@ export function Resumen({ estado, eventos, recargar }: Contexto) {
               </tbody>
             </table>
           </div>
-          <p className="meta">Para probar cualquier otra cuenta, usa Funciones del contrato.</p>
+          <p className="meta">Las cuentas con saldo pendiente aparecen aquí. Para llamar cualquier función desde otra cuenta, usa Funciones del contrato.</p>
         </section>
 
         <form

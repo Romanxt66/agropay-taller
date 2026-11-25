@@ -1,5 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react'
-import { ErrorApi, type Cuenta } from './api'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { api, ErrorApi, type Cuenta } from './api'
 import { corto, eth } from './format'
 
 /** Resultado de una llamada al contrato: transacción confirmada o reversión con el nombre del error. */
@@ -120,5 +120,36 @@ export function Cabecera(props: { antetitulo: string; titulo: ReactNode; texto?:
       </div>
       {props.acciones && <div className="fila">{props.acciones}</div>}
     </div>
+  )
+}
+
+/** Reinicia toda la red: las 10 cuentas vuelven a su saldo inicial y se despliega un contrato nuevo. */
+export function ReiniciarCuentas(props: { onSalida: (s: Salida) => void; alTerminar: () => Promise<void> | void; deshabilitado?: boolean }) {
+  const [abierto, setAbierto] = useState(false)
+  const [ocupado, setOcupado] = useState(false)
+
+  const confirmar = async () => {
+    setAbierto(false)
+    setOcupado(true)
+    try {
+      await api('/reiniciar-cuentas', {})
+      props.onSalida({ ok: true, titulo: 'Cuentas reiniciadas', detalle: 'Las 10 cuentas volvieron a 10.000 ETH y se desplegó un contrato nuevo. La garantía y el registro están en cero.' })
+    } catch (err) {
+      props.onSalida(salidaDeError(err, 'Reiniciar todas las cuentas'))
+    } finally {
+      await props.alTerminar()
+      setOcupado(false)
+    }
+  }
+
+  return (
+    <>
+      <button className="btn btn-peligro" type="button" disabled={ocupado || props.deshabilitado} onClick={() => setAbierto(true)}>
+        {ocupado ? 'Reiniciando' : 'Reiniciar todas las cuentas'}
+      </button>
+      <Dialogo abierto={abierto} titulo="¿Reiniciar todas las cuentas?" confirmar="Reiniciar" peligro onConfirmar={() => void confirmar()} onCancelar={() => setAbierto(false)}>
+        <p className="meta">Las 10 cuentas vuelven a 10.000 ETH, se despliega un contrato nuevo y se pierden la garantía, los saldos pendientes y el registro.</p>
+      </Dialogo>
+    </>
   )
 }

@@ -44,8 +44,11 @@ function numeroEnRango(valor, nombre, min, max) {
 }
 
 async function crearServicio({ ethers }) {
-  const firmantes = (await ethers.getSigners()).slice(0, NUM_CUENTAS);
-  const productores = firmantes.slice(2, 5);
+  const todos = await ethers.getSigners();
+  const firmantes = todos.slice(0, NUM_CUENTAS);
+  // Los despliegues salen de una cuenta aparte: así las 10 cuentas visibles no pagan gas de despliegue
+  const desplegador = todos[todos.length - 1];
+  const fabrica = async nombre => (await ethers.getContractFactory(nombre)).connect(desplegador);
 
   let oraculoIndice = 1;
   let contrato;
@@ -68,8 +71,7 @@ async function crearServicio({ ethers }) {
 
   async function desplegar(indiceOraculo) {
     const direccion = indiceOraculo === null ? ethers.ZeroAddress : firmantes[indiceOraculo].address;
-    const fabrica = await ethers.getContractFactory('GarantiaAgroPay');
-    const nuevo = await fabrica.deploy(direccion);
+    const nuevo = await (await fabrica('GarantiaAgroPay')).deploy(direccion);
     await nuevo.waitForDeployment();
     contrato = nuevo;
     oraculoIndice = indiceOraculo;
@@ -225,8 +227,8 @@ async function crearServicio({ ethers }) {
 
   // ---- retirar ----
   const retirar = body => protegido(async () => {
-    const quien = Number.isInteger(body?.cuenta) ? cuentaDe(body.cuenta) : productores[body?.productor];
-    if (!quien) throw new ErrorServicio(400, 'Elige una cuenta de la lista.');
+    // Un solo criterio: el índice de cuenta que informa /api/estado (acepta `cuenta` o `productor`)
+    const quien = cuentaDe(body?.cuenta ?? body?.productor);
     const pendiente = await contrato.saldoPendiente(quien.address);
     const recibo = await (await contrato.connect(quien).retirar()).wait();
     await sync();
@@ -242,8 +244,7 @@ async function crearServicio({ ethers }) {
     }
     const temperatura = numeroEnRango(body.temperatura, 'La temperatura', -50, 100);
     const acidez = numeroEnRango(body.acidez, 'La acidez', 0, 100);
-    const productor = productores[body.productor];
-    if (!productor) throw new ErrorServicio(400, 'Elige un productor de la lista.');
+    const productor = cuentaDe(body.productor);
     const monto = leerEth(ethers, body.montoEth, 'El monto del pago');
     const prueba = body.prueba ?? 'normal';
     if (!['normal', 'repetida', 'alterada'].includes(prueba)) {
@@ -297,6 +298,14 @@ async function crearServicio({ ethers }) {
     return { contrato: await contrato.getAddress(), oraculoIndice };
   });
 
+  /** Reinicia toda la red: las 10 cuentas vuelven a su saldo inicial y se despliega un contrato nuevo. */
+  const reiniciarCuentas = () => protegido(async () => {
+    await ethers.provider.send('hardhat_reset', []);
+    contadorPractica = 0;
+    await desplegar(1);
+    return { contrato: await contrato.getAddress(), oraculoIndice };
+  });
+
   // ---- Contratos de práctica ----
   function loteDePractica() {
     contadorPractica += 1;
@@ -318,7 +327,7 @@ async function crearServicio({ ethers }) {
   /** Un destinatario que rechaza pagos: retirar() revierte con FalloTransferencia y el saldo se conserva. */
   const practicaReceptor = ({ montoEth }) => protegido(async () => {
     const { instancia, direccion, monto } = await prepararPractica('receptor', 'Receptor que rechaza', montoEth, async () =>
-      (await ethers.getContractFactory('ReceptorQueRechaza')).deploy());
+      (await fabrica('ReceptorQueRechaza')).deploy());
     let intento;
     try {
       await (await instancia.retirarDe(await contrato.getAddress())).wait();
@@ -339,7 +348,7 @@ async function crearServicio({ ethers }) {
   /** Un atacante que vuelve a llamar a retirar() mientras recibe el pago: el patrón CEI lo frena. */
   const practicaAtacante = ({ montoEth }) => protegido(async () => {
     const { instancia, direccion, monto } = await prepararPractica('atacante', 'Atacante de reentrada', montoEth, async () =>
-      (await ethers.getContractFactory('AtacanteRetiro')).deploy(await contrato.getAddress()));
+      (await fabrica('AtacanteRetiro')).deploy(await contrato.getAddress()));
     await (await instancia.atacar()).wait();
     await sync();
     return {
@@ -354,7 +363,7 @@ async function crearServicio({ ethers }) {
 
   return {
     leerEstado, eventos, consultar, depositar, autorizarDirecto, enviarLectura, retirar,
-    reconstruirProyeccion, reiniciar, practicaReceptor, practicaAtacante, ErrorServicio,
+    reconstruirProyeccion, reiniciar, reiniciarCuentas, practicaReceptor, practicaAtacante, ErrorServicio,
   };
 }
 
